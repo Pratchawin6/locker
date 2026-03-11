@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>QR Locker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<style>
+/* ═══════════════════════════════════════
+   VARIABLES & RESET
+═══════════════════════════════════════ */
+:root{
+  --bg:#080d12;--surface:#0e1820;--card:#141f2e;--border:#1e3048;
+  --yellow:#f5c400;--yellow2:#ffe040;--yellow-dim:rgba(245,196,0,.12);
+  --green:#00e676;--green-dim:rgba(0,230,118,.1);
+  --red:#ff4757;--red-dim:rgba(255,71,87,.1);
+  --blue:#00b4ff;--blue-dim:rgba(0,180,255,.1);
+  --text:#dce8f2;--muted:#4a6a88;--muted2:#6a8ea8;
+  --mono:'Space Mono',monospace;
+  --thai:'Noto Sans Thai',sans-serif;
+  --r:14px;--rx:20px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html{height:100%;overscroll-behavior:none;}
+body{font-family:var(--thai);background:var(--bg);color:var(--text);
+  min-height:100%;min-height:100dvh;overflow-x:hidden;}
+
+/* ═══════════════════════════════════════
+   SCREENS
+═══════════════════════════════════════ */
+.scr{display:none;flex-direction:column;min-height:100dvh;animation:fadeIn .2s ease;}
+.scr.on{display:flex;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+/* ═══════════════════════════════════════
+   TOPBAR
+═══════════════════════════════════════ */
+.topbar{
+  display:flex;align-items:center;padding:env(safe-area-inset-top,0) 18px 0;
+  padding-top:max(env(safe-area-inset-top),14px);padding-bottom:10px;
+  background:var(--surface);border-bottom:1px solid var(--border);
+  position:sticky;top:0;z-index:50;gap:10px;
+}
+.logo{font-family:var(--mono);font-size:.9rem;color:var(--yellow);font-weight:700;flex:1;}
+.logo span{color:var(--muted2);font-weight:400;}
+.conn-pill{
+  display:flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;
+  font-family:var(--mono);font-size:.62rem;letter-spacing:.5px;cursor:pointer;
+  transition:all .2s;
+}
+.conn-pill.connecting{background:rgba(245,196,0,.1);color:var(--yellow);border:1px solid rgba(245,196,0,.3);}
+.conn-pill.connected {background:var(--green-dim);color:var(--green);border:1px solid rgba(0,230,118,.3);}
+.conn-pill.error     {background:var(--red-dim);  color:var(--red);  border:1px solid rgba(255,71,87,.3);}
+.conn-dot{width:6px;height:6px;border-radius:50%;background:currentColor;}
+.conn-dot.blink{animation:blink .8s ease infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* ═══════════════════════════════════════
+   HOME SCREEN
+═══════════════════════════════════════ */
+.hero{
+  background:radial-gradient(ellipse 80% 60% at 50% 0%,rgba(245,196,0,.08),transparent),
+    linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);
+  padding:28px 20px 24px;text-align:center;border-bottom:1px solid var(--border);
+}
+.hero-icon{font-size:3.2rem;margin-bottom:10px;display:block;}
+.hero-title{font-family:var(--mono);font-size:1.5rem;font-weight:700;
+  color:var(--yellow);letter-spacing:-1px;margin-bottom:4px;}
+.hero-sub{font-size:.8rem;color:var(--muted2);letter-spacing:2px;}
+
+/* Stats */
+.stats-row{display:flex;gap:0;border-bottom:1px solid var(--border);}
+.stat-item{flex:1;padding:12px 8px;text-align:center;border-right:1px solid var(--border);}
+.stat-item:last-child{border-right:none;}
+.stat-v{font-family:var(--mono);font-size:1.6rem;font-weight:700;line-height:1;}
+.stat-v.g{color:var(--green);}
+.stat-v.o{color:#ff9100;}
+.stat-v.b{color:var(--blue);}
+.stat-l{font-size:.6rem;color:var(--muted);margin-top:3px;letter-spacing:1px;text-transform:uppercase;}
+
+/* Channel grid */
+.grid-wrap{padding:16px;}
+.grid-title{font-family:var(--mono);font-size:.65rem;color:var(--muted);letter-spacing:3px;
+  text-transform:uppercase;margin-bottom:12px;}
+.ch-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+.ch-card{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--r);
+  padding:12px 10px;cursor:pointer;transition:all .15s;position:relative;overflow:hidden;
+}
+.ch-card:active{transform:scale(.96);}
+.ch-card.empty{border-color:rgba(0,230,118,.2);background:rgba(0,230,118,.04);}
+.ch-card.taken{border-color:rgba(255,145,0,.2);background:rgba(255,145,0,.04);}
+.ch-card.open {border-color:rgba(0,180,255,.2);background:rgba(0,180,255,.06);}
+.ch-num{font-family:var(--mono);font-size:1.1rem;font-weight:700;color:var(--yellow);}
+.ch-status{font-size:.65rem;margin-top:3px;font-weight:600;}
+.ch-card.empty .ch-status{color:var(--green);}
+.ch-card.taken .ch-status{color:#ff9100;}
+.ch-card.open  .ch-status{color:var(--blue);}
+.ch-led{position:absolute;top:8px;right:8px;width:6px;height:6px;border-radius:50%;}
+.ch-card.empty .ch-led{background:var(--green);box-shadow:0 0 6px var(--green);}
+.ch-card.taken .ch-led{background:#ff9100;box-shadow:0 0 6px #ff9100;animation:blink 2s infinite;}
+.ch-card.open  .ch-led{background:var(--blue);box-shadow:0 0 8px var(--blue);animation:blink .6s infinite;}
+
+/* Scan button */
+.scan-fab{
+  position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 24px);
+  left:50%;transform:translateX(-50%);
+  background:var(--yellow);color:#0a0a0a;border:none;border-radius:50px;
+  padding:15px 32px;font-family:var(--thai);font-size:1rem;font-weight:700;
+  cursor:pointer;display:flex;align-items:center;gap:9px;
+  box-shadow:0 4px 24px rgba(245,196,0,.45),0 0 0 0 rgba(245,196,0,.3);
+  transition:all .2s;white-space:nowrap;z-index:40;
+  animation:pulse 3s ease infinite;
+}
+@keyframes pulse{
+  0%,100%{box-shadow:0 4px 24px rgba(245,196,0,.45),0 0 0 0 rgba(245,196,0,.3);}
+  50%{box-shadow:0 4px 24px rgba(245,196,0,.45),0 0 0 10px rgba(245,196,0,.0);}
+}
+.scan-fab:active{transform:translateX(-50%) scale(.96);}
+.scan-fab svg{width:20px;height:20px;}
+.pb-fab{height:100px;}
+
+/* ═══════════════════════════════════════
+   SCANNER SCREEN
+═══════════════════════════════════════ */
+#scr-scan{background:#000;position:relative;}
+.scan-video-wrap{position:relative;flex:1;overflow:hidden;background:#000;}
+#scan-video{width:100%;height:100%;object-fit:cover;display:block;}
+#scan-canvas{display:none;}
+.scan-overlay{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;pointer-events:none;
+}
+.scan-frame{
+  width:220px;height:220px;position:relative;
+}
+.scan-corner{position:absolute;width:28px;height:28px;border:3px solid var(--yellow);}
+.scan-corner.tl{top:0;left:0;border-right:none;border-bottom:none;border-radius:4px 0 0 0;}
+.scan-corner.tr{top:0;right:0;border-left:none;border-bottom:none;border-radius:0 4px 0 0;}
+.scan-corner.bl{bottom:0;left:0;border-right:none;border-top:none;border-radius:0 0 0 4px;}
+.scan-corner.br{bottom:0;right:0;border-left:none;border-top:none;border-radius:0 0 4px 0;}
+.scan-line{
+  position:absolute;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--yellow),transparent);
+  animation:scanAnim 1.8s ease-in-out infinite;top:0;
+}
+@keyframes scanAnim{0%{top:0;}100%{top:calc(100% - 2px)}}
+.scan-dim{position:absolute;inset:0;background:rgba(0,0,0,.5);}
+.scan-dim-t{top:0;left:0;right:0;height:calc(50% - 110px);}
+.scan-dim-b{bottom:0;left:0;right:0;height:calc(50% - 110px);}
+.scan-dim-l{top:calc(50% - 110px);left:0;width:calc(50% - 110px);height:220px;}
+.scan-dim-r{top:calc(50% - 110px);right:0;width:calc(50% - 110px);height:220px;}
+
+.scan-hint{margin-top:24px;font-size:.8rem;color:rgba(255,255,255,.7);
+  background:rgba(0,0,0,.6);padding:7px 14px;border-radius:20px;backdrop-filter:blur(8px);}
+.scan-bar{
+  background:var(--surface);border-top:1px solid var(--border);
+  padding:14px 20px calc(env(safe-area-inset-bottom,0px) + 14px);
+  display:flex;gap:10px;align-items:center;
+}
+.scan-close{
+  padding:11px 20px;border-radius:10px;border:1px solid var(--border);
+  background:transparent;color:var(--text);font-family:var(--thai);font-size:.9rem;
+  cursor:pointer;
+}
+.scan-manual{flex:1;padding:11px 14px;border-radius:10px;border:1px solid var(--border);
+  background:var(--card);color:var(--text);font-family:var(--mono);font-size:.9rem;
+  outline:none;text-align:center;letter-spacing:1px;}
+.scan-manual:focus{border-color:var(--yellow);}
+.scan-go{
+  padding:11px 18px;border-radius:10px;background:var(--yellow);
+  color:#0a0a0a;font-family:var(--thai);font-weight:700;font-size:.9rem;
+  border:none;cursor:pointer;
+}
+.scan-found{
+  position:absolute;inset:0;background:rgba(0,0,0,.8);display:none;
+  align-items:center;justify-content:center;flex-direction:column;gap:10px;
+  font-size:1.2rem;color:var(--green);font-family:var(--mono);font-weight:700;
+  animation:none;
+}
+.scan-found.show{display:flex;}
+
+/* ═══════════════════════════════════════
+   LOCKER DETAIL SCREEN
+═══════════════════════════════════════ */
+.detail-header{
+  background:linear-gradient(135deg,var(--surface) 0%,var(--card) 100%);
+  padding:20px 20px 18px;border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:16px;
+}
+.det-back{
+  background:var(--card);border:1px solid var(--border);border-radius:8px;
+  padding:8px 12px;color:var(--muted2);font-size:.9rem;cursor:pointer;
+  display:flex;align-items:center;gap:5px;font-family:var(--thai);
+  border:none;
+}
+.det-ch-info{flex:1;}
+.det-chnum{font-family:var(--mono);font-size:2.8rem;font-weight:700;
+  color:var(--yellow);line-height:1;}
+.det-chlbl{font-size:.7rem;color:var(--muted);letter-spacing:2px;margin-top:2px;}
+
+.det-status-badge{
+  padding:6px 14px;border-radius:20px;font-family:var(--mono);font-size:.72rem;font-weight:700;
+  letter-spacing:1px;
+}
+.det-status-badge.empty{background:var(--green-dim);color:var(--green);border:1px solid rgba(0,230,118,.3);}
+.det-status-badge.taken{background:rgba(255,145,0,.1);color:#ff9100;border:1px solid rgba(255,145,0,.3);}
+.det-status-badge.open {background:var(--blue-dim);color:var(--blue);border:1px solid rgba(0,180,255,.3);}
+.det-status-badge.checking{background:var(--yellow-dim);color:var(--yellow);border:1px solid rgba(245,196,0,.3);}
+
+.det-body{padding:18px;display:flex;flex-direction:column;gap:12px;flex:1;
+  padding-bottom:calc(env(safe-area-inset-bottom,0px) + 18px);}
+
+/* Info card */
+.info-card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;}
+.info-row{display:flex;justify-content:space-between;align-items:center;
+  padding:10px 14px;border-bottom:1px solid var(--border);}
+.info-row:last-child{border-bottom:none;}
+.ik{font-size:.78rem;color:var(--muted);}
+.iv{font-family:var(--mono);font-size:.78rem;font-weight:700;}
+.iv.g{color:var(--green);} .iv.o{color:#ff9100;} .iv.b{color:var(--blue);}
+.iv.r{color:var(--red);} .iv.y{color:var(--yellow);}
+
+/* Status card */
+.status-card{border-radius:var(--r);padding:14px 16px;display:flex;gap:12px;align-items:flex-start;}
+.status-card.empty{background:var(--green-dim);border:1px solid rgba(0,230,118,.2);}
+.status-card.taken{background:rgba(255,145,0,.08);border:1px solid rgba(255,145,0,.2);}
+.status-card.open {background:var(--blue-dim);border:1px solid rgba(0,180,255,.2);}
+.status-card.checking{background:var(--yellow-dim);border:1px solid rgba(245,196,0,.2);}
+.sc-icon{font-size:1.6rem;flex-shrink:0;}
+.sc-txt{flex:1;}
+.sc-title{font-size:.92rem;font-weight:700;margin-bottom:3px;}
+.sc-desc{font-size:.76rem;color:var(--muted2);line-height:1.5;}
+
+/* Relay countdown */
+.relay-bar{
+  background:var(--yellow-dim);border:1px solid rgba(245,196,0,.2);
+  border-radius:var(--r);padding:10px 14px;display:none;
+  align-items:center;gap:10px;
+}
+.relay-bar.show{display:flex;}
+.relay-bar-fill-wrap{flex:1;height:5px;background:rgba(245,196,0,.15);border-radius:3px;overflow:hidden;}
+.relay-bar-fill{height:100%;background:var(--yellow);border-radius:3px;
+  transition:width 1s linear;width:100%;}
+.relay-t{font-family:var(--mono);font-size:1.1rem;font-weight:700;color:var(--yellow);min-width:20px;text-align:right;}
+
+/* Action buttons */
+.act-wrap{display:flex;flex-direction:column;gap:8px;}
+.abtn{
+  padding:15px 20px;border-radius:12px;font-family:var(--thai);font-size:.95rem;
+  font-weight:700;border:none;cursor:pointer;display:flex;align-items:center;
+  justify-content:center;gap:9px;transition:all .18s;width:100%;
+}
+.abtn:active{transform:scale(.97);}
+.abtn-primary{background:var(--yellow);color:#0a0a0a;box-shadow:0 3px 16px rgba(245,196,0,.3);}
+.abtn-success{background:var(--green-dim);color:var(--green);border:1.5px solid rgba(0,230,118,.3);}
+.abtn-info   {background:var(--blue-dim);color:var(--blue);border:1.5px solid rgba(0,180,255,.3);}
+.abtn-danger {background:var(--red-dim);color:var(--red);border:1.5px solid rgba(255,71,87,.3);}
+
+/* ═══════════════════════════════════════
+   MODALS
+═══════════════════════════════════════ */
+.overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;
+  align-items:flex-end;justify-content:center;z-index:200;backdrop-filter:blur(8px);
+}
+.overlay.show{display:flex;}
+.modal{
+  background:var(--surface);border-radius:var(--rx) var(--rx) 0 0;
+  padding:22px 22px calc(env(safe-area-inset-bottom,0px) + 28px);
+  width:100%;max-width:500px;animation:slideUp .22s ease;
+  border:1px solid var(--border);border-bottom:none;
+}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal-pill{width:32px;height:3px;background:var(--muted);border-radius:2px;margin:0 auto 18px;}
+.modal h3{font-size:1rem;font-weight:700;margin-bottom:3px;}
+.modal h3 span{color:var(--yellow);font-family:var(--mono);}
+.modal p{font-size:.8rem;color:var(--muted2);margin-bottom:16px;line-height:1.6;}
+.mi{
+  width:100%;background:var(--card);border:1.5px solid var(--border);border-radius:10px;
+  color:var(--text);font-family:var(--thai);font-size:.95rem;padding:13px 14px;
+  margin-bottom:10px;outline:none;transition:all .18s;
+}
+.mi:focus{border-color:var(--yellow);box-shadow:0 0 0 3px rgba(245,196,0,.1);}
+.mi::placeholder{color:var(--muted);}
+.pw-wrap{position:relative;margin-bottom:10px;}
+.pw-wrap .mi{margin-bottom:0;padding-right:46px;}
+.pw-eye{position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  background:none;border:none;cursor:pointer;font-size:1rem;color:var(--muted);padding:4px;}
+.mbtns{display:flex;gap:8px;margin-top:4px;}
+.mbtn{flex:1;padding:13px;border-radius:10px;cursor:pointer;font-size:.9rem;font-weight:700;
+  border:none;font-family:var(--thai);transition:all .15s;}
+.mbtn-ok{background:var(--yellow);color:#0a0a0a;}
+.mbtn-ok:active{background:var(--yellow2);}
+.mbtn-cn{background:var(--card);color:var(--muted2);border:1.5px solid var(--border);}
+.merr{
+  color:var(--red);font-size:.76rem;text-align:center;display:none;
+  background:var(--red-dim);border-radius:8px;padding:8px;margin-bottom:8px;
+  border:1px solid rgba(255,71,87,.2);
+}
+.merr.show{display:block;}
+
+/* Loading spinner */
+.spinner{
+  width:32px;height:32px;border:3px solid var(--border);
+  border-top-color:var(--yellow);border-radius:50%;
+  animation:spin .7s linear infinite;margin:0 auto 12px;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* SUCCESS SCREEN */
+.success-scr{
+  position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;
+  align-items:center;justify-content:center;z-index:300;padding:32px;
+  animation:fadeIn .2s ease;
+}
+.success-scr.show{display:flex;}
+.succ-icon{font-size:5rem;margin-bottom:16px;animation:popIn .35s ease;}
+@keyframes popIn{0%{transform:scale(0)}70%{transform:scale(1.15)}100%{transform:scale(1)}}
+.succ-title{font-size:1.4rem;font-weight:700;text-align:center;margin-bottom:8px;}
+.succ-msg{font-size:.88rem;color:var(--muted2);text-align:center;line-height:1.7;
+  white-space:pre-line;margin-bottom:28px;}
+.succ-btn{padding:14px 40px;background:var(--yellow);color:#0a0a0a;border:none;
+  border-radius:12px;font-size:.95rem;font-weight:700;cursor:pointer;font-family:var(--thai);}
+
+/* TOAST */
+.toast{
+  position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 80px);
+  left:50%;transform:translateX(-50%) translateY(20px);
+  background:rgba(14,24,32,.95);border:1px solid var(--border);
+  border-radius:20px;padding:9px 18px;font-size:.8rem;color:var(--text);
+  white-space:nowrap;opacity:0;transition:all .25s;z-index:400;
+  backdrop-filter:blur(8px);
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+/* WAITING overlay */
+.waiting{
+  position:fixed;inset:0;background:rgba(0,0,0,.75);display:none;
+  align-items:center;justify-content:center;z-index:500;flex-direction:column;gap:14px;
+  backdrop-filter:blur(6px);
+}
+.waiting.show{display:flex;}
+.waiting-txt{font-family:var(--mono);font-size:.85rem;color:var(--muted2);}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════
+     HOME SCREEN
+════════════════════════ -->
+<div class="scr on" id="scr-home">
+  <div class="topbar">
+    <div class="logo">QR<span>LOCKER</span></div>
+    <div class="conn-pill connecting" id="conn-pill" onclick="retryConnect()">
+      <div class="conn-dot blink" id="conn-dot"></div>
+      <span id="conn-txt">กำลังเชื่อมต่อ...</span>
+    </div>
+  </div>
+
+  <div class="hero">
+    <span class="hero-icon">🔐</span>
+    <div class="hero-title">QR LOCKER</div>
+    <div class="hero-sub">ESP8266 · NETPIE · 18 CHANNELS</div>
+  </div>
+
+  <div class="stats-row">
+    <div class="stat-item"><div class="stat-v g" id="st-free">—</div><div class="stat-l">ว่าง</div></div>
+    <div class="stat-item"><div class="stat-v o" id="st-used">—</div><div class="stat-l">ถูกใช้</div></div>
+    <div class="stat-item"><div class="stat-v b" id="st-open">—</div><div class="stat-l">เปิดอยู่</div></div>
+  </div>
+
+  <div class="grid-wrap">
+    <div class="grid-title">สถานะตู้ทั้งหมด (QRCH01–QRCH18)</div>
+    <div class="ch-grid" id="ch-grid"></div>
+  </div>
+  <div class="pb-fab"></div>
+
+  <button class="scan-fab" onclick="openScanner()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <path d="M3 7V5a2 2 0 012-2h2M17 3h2a2 2 0 012 2v2M21 17v2a2 2 0 01-2 2h-2M7 21H5a2 2 0 01-2-2v-2"/>
+      <rect x="7" y="7" width="10" height="10" rx="1"/>
+    </svg>
+    สแกน QR เปิดตู้
+  </button>
+</div>
+
+<!-- ════════════════════════
+     SCANNER SCREEN
+════════════════════════ -->
+<div class="scr" id="scr-scan">
+  <div class="topbar">
+    <div class="logo">QR<span>SCANNER</span></div>
+    <button onclick="closeScanner()" style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:6px 12px;color:var(--muted2);font-size:.85rem;cursor:pointer;">✕ ปิด</button>
+  </div>
+  <div class="scan-video-wrap">
+    <video id="scan-video" autoplay playsinline muted></video>
+    <canvas id="scan-canvas"></canvas>
+
+    <!-- Dim overlay (4 pieces around frame) -->
+    <div class="scan-dim scan-dim-t"></div>
+    <div class="scan-dim scan-dim-b"></div>
+    <div class="scan-dim scan-dim-l"></div>
+    <div class="scan-dim scan-dim-r"></div>
+
+    <div class="scan-overlay">
+      <div class="scan-frame">
+        <div class="scan-corner tl"></div>
+        <div class="scan-corner tr"></div>
+        <div class="scan-corner bl"></div>
+        <div class="scan-corner br"></div>
+        <div class="scan-line"></div>
+      </div>
+      <div class="scan-hint" id="scan-hint">ชี้กล้องไปที่ QR Code บนตู้</div>
+    </div>
+
+    <div class="scan-found" id="scan-found">
+      <div style="font-size:3rem">✅</div>
+      <div id="scan-found-ch">QRCH01</div>
+    </div>
+  </div>
+
+  <div class="scan-bar">
+    <button class="scan-close" onclick="closeScanner()">กลับ</button>
+    <input class="scan-manual" id="scan-manual" placeholder="พิมพ์ เช่น QRCH01" maxlength="8"
+      oninput="this.value=this.value.toUpperCase()">
+    <button class="scan-go" onclick="manualGo()">เปิด</button>
+  </div>
+</div>
+
+<!-- ════════════════════════
+     DETAIL SCREEN
+════════════════════════ -->
+<div class="scr" id="scr-detail">
+  <div class="topbar">
+    <div class="logo">QR<span>LOCKER</span></div>
+    <div class="conn-pill connected" id="conn-pill2">
+      <div class="conn-dot"></div>
+      <span>NETPIE</span>
+    </div>
+  </div>
+
+  <div class="detail-header">
+    <button class="det-back" onclick="goHome()">← กลับ</button>
+    <div class="det-ch-info">
+      <div class="det-chnum" id="det-num">01</div>
+      <div class="det-chlbl">QR LOCKER CHANNEL</div>
+    </div>
+    <div class="det-status-badge checking" id="det-badge">กำลังตรวจสอบ...</div>
+  </div>
+
+  <div class="det-body">
+    <!-- Status card -->
+    <div class="status-card checking" id="det-sc">
+      <div class="sc-icon" id="det-sc-icon">⏳</div>
+      <div class="sc-txt">
+        <div class="sc-title" id="det-sc-title">กำลังตรวจสอบสถานะ...</div>
+        <div class="sc-desc" id="det-sc-desc">กำลังส่งคำสั่งไปที่ ESP8266 ผ่าน NETPIE</div>
+      </div>
+    </div>
+
+    <!-- Info -->
+    <div class="info-card" id="det-info" style="display:none">
+      <div class="info-row"><span class="ik">Channel</span><span class="iv y" id="di-ch">—</span></div>
+      <div class="info-row"><span class="ik">สถานะ</span><span class="iv" id="di-st">—</span></div>
+      <div class="info-row"><span class="ik">Relay</span><span class="iv" id="di-ry">—</span></div>
+    </div>
+
+    <!-- Relay countdown -->
+    <div class="relay-bar" id="relay-bar">
+      <span style="font-size:.8rem;color:var(--yellow)">⚡ Relay ON</span>
+      <div class="relay-bar-fill-wrap">
+        <div class="relay-bar-fill" id="relay-fill"></div>
+      </div>
+      <span class="relay-t" id="relay-t">6</span>s
+    </div>
+
+    <!-- Actions -->
+    <div class="act-wrap" id="det-actions"></div>
+  </div>
+</div>
+
+<!-- ════════════════════════
+     MODALS
+════════════════════════ -->
+<!-- Register modal -->
+<div class="overlay" id="m-reg">
+  <div class="modal">
+    <div class="modal-pill"></div>
+    <h3>📋 ลงทะเบียนตู้ <span id="mr-ch"></span></h3>
+    <p>กรอกข้อมูลเพื่อจองตู้ล็อกเกอร์ — จำรหัสผ่านไว้ใช้เปิดตู้ครั้งต่อไป</p>
+    <input class="mi" id="mr-u" placeholder="Username" autocomplete="off"
+      oninput="this.value=this.value.replace(/\s/g,'')"/>
+    <div class="pw-wrap">
+      <input class="mi" id="mr-p" placeholder="Password" type="password" autocomplete="new-password"/>
+      <button class="pw-eye" onclick="togglePw('mr-p',this)">👁</button>
+    </div>
+    <div class="merr" id="mr-err">กรุณากรอก Username และ Password</div>
+    <div class="mbtns">
+      <button class="mbtn mbtn-cn" onclick="closeM('m-reg')">ยกเลิก</button>
+      <button class="mbtn mbtn-ok" id="mr-btn" onclick="doRegister()">✅ ลงทะเบียน</button>
+    </div>
+  </div>
+</div>
+
+<!-- Login modal -->
+<div class="overlay" id="m-login">
+  <div class="modal">
+    <div class="modal-pill"></div>
+    <h3>🔓 เปิดตู้ <span id="ml-ch"></span></h3>
+    <p>กรอก Username + Password ที่ลงทะเบียนไว้</p>
+    <input class="mi" id="ml-u" placeholder="Username" autocomplete="off"/>
+    <div class="pw-wrap">
+      <input class="mi" id="ml-p" placeholder="Password" type="password"/>
+      <button class="pw-eye" onclick="togglePw('ml-p',this)">👁</button>
+    </div>
+    <div class="merr" id="ml-err">Username หรือ Password ไม่ถูกต้อง</div>
+    <div class="mbtns">
+      <button class="mbtn mbtn-cn" onclick="closeM('m-login')">ยกเลิก</button>
+      <button class="mbtn mbtn-ok" id="ml-btn" onclick="doLogin()">🔓 เปิดตู้</button>
+    </div>
+  </div>
+</div>
+
+<!-- Admin Login modal -->
+<div class="overlay" id="m-admin">
+  <div class="modal">
+    <div class="modal-pill"></div>
+    <h3>🔑 Admin Login</h3>
+    <p>กรอกรหัสผ่าน Admin เพื่อเข้าสู่หน้าจัดการระบบ</p>
+    <div class="pw-wrap">
+      <input class="mi" id="ma-p" placeholder="Admin Password" type="password" autocomplete="off"/>
+      <button class="pw-eye" onclick="togglePw('ma-p',this)">👁</button>
+    </div>
+    <div class="merr" id="ma-err">รหัสผ่านไม่ถูกต้อง</div>
+    <div class="mbtns">
+      <button class="mbtn mbtn-cn" onclick="closeM('m-admin')">ยกเลิก</button>
+      <button class="mbtn mbtn-ok" onclick="doAdminLogin()">🔑 เข้าสู่ระบบ</button>
+    </div>
+  </div>
+</div>
+
+<!-- Success screen -->
+<div class="success-scr" id="succ-scr">
+  <div class="succ-icon" id="succ-icon">✅</div>
+  <div class="succ-title" id="succ-title"></div>
+  <div class="succ-msg" id="succ-msg"></div>
+  <button class="succ-btn" onclick="closeSucc()">ตกลง</button>
+</div>
+
+<!-- Waiting overlay -->
+<div class="waiting" id="waiting">
+  <div class="spinner"></div>
+  <div class="waiting-txt" id="waiting-txt">กำลังส่งคำสั่ง...</div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ══════════════════════════════════════════════
+   NETPIE CONFIG — จากโค้ด Arduino จริง
+══════════════════════════════════════════════ */
+const APPID      = 'AppServerQR';
+const KEY        = 'qFrT0sOHmiDR7Ft';
+const SECRET     = 'f6yhqRzmeesVrH8jJbal0Gdav';
+const ESP_ALIAS  = 'WIFI_BOARD.S';   // ชื่อ alias ของบอร์ด
+const MY_ALIAS   = 'ANDROID';        // ชื่อ alias ที่ ESP ส่งตอบกลับมา
+const NUM_CH     = 18;               // จำนวนช่อง
+
+// NETPIE MQTT topics
+const TOPIC_SEND = `/&${APPID}/${ESP_ALIAS}`;
+const TOPIC_RECV = `/&${APPID}/${MY_ALIAS}`;
+const TOPIC_RECV2= `/&${APPID}/@${MY_ALIAS}`;
+
+/* ══════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════ */
+let mqttClient  = null;
+let connState   = 'disconnected'; // 'disconnected'|'connecting'|'connected'|'error'
+let currentCh   = null;    // 'QRCH01' etc
+let chStatus    = {};      // {'QRCH01': 'empty'|'taken'|'open', ...}
+let pendingCmd  = null;    // command waiting for response
+let cmdTimeout  = null;
+let relayTimer  = null;
+let scanStream  = null;
+let scanAnimId  = null;
+
+// Init all channels as unknown
+for(let i=1;i<=NUM_CH;i++) chStatus[`QRCH${pad(i)}`]='unknown';
+
+/* ══════════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════════ */
+const pad = n => String(n).padStart(2,'0');
+function chNum(ch){ return parseInt(ch.replace('QRCH','')); }
+
+function showScr(id){
+  document.querySelectorAll('.scr').forEach(s=>s.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+}
+
+function showM(id){ document.getElementById(id).classList.add('show'); }
+function closeM(id){ document.getElementById(id).classList.remove('show'); }
+
+function toast(msg, dur=2500){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), dur);
+}
+
+function showWaiting(txt='กำลังส่งคำสั่ง...'){
+  document.getElementById('waiting-txt').textContent = txt;
+  document.getElementById('waiting').classList.add('show');
+}
+function hideWaiting(){ document.getElementById('waiting').classList.remove('show'); }
+
+function togglePw(id, btn){
+  const el=document.getElementById(id);
+  if(el.type==='password'){ el.type='text'; btn.textContent='🙈'; }
+  else { el.type='password'; btn.textContent='👁'; }
+}
+
+function showSucc(icon,title,msg){
+  document.getElementById('succ-icon').textContent=icon;
+  document.getElementById('succ-title').textContent=title;
+  document.getElementById('succ-msg').textContent=msg;
+  document.getElementById('succ-scr').classList.add('show');
+}
+function closeSucc(){
+  document.getElementById('succ-scr').classList.remove('show');
+  goHome();
+}
+
+/* ══════════════════════════════════════════════
+   NETPIE CONNECTION
+   JSONP auth → MQTT WebSocket
+══════════════════════════════════════════════ */
+function setConnState(state, msg=''){
+  connState = state;
+  const pill = document.getElementById('conn-pill');
+  const dot  = document.getElementById('conn-dot');
+  const txt  = document.getElementById('conn-txt');
+  if(!pill) return;
+  pill.className = 'conn-pill ' + state;
+  dot.className  = 'conn-dot' + (state==='connecting'?' blink':'');
+  txt.textContent = {
+    connecting: 'กำลังเชื่อมต่อ...',
+    connected:  'NETPIE ✓',
+    error:      'เชื่อมต่อล้มเหลว',
+    disconnected:'ไม่ได้เชื่อมต่อ'
+  }[state]||msg;
+}
+
+function getNetpieToken(){
+  return new Promise((resolve, reject) => {
+    const session = 'mg_' + Date.now();
+    window[session] = function(data){
+      delete window[session];
+      if(data && data.access_token) resolve(data.access_token);
+      else reject(new Error('No token'));
+    };
+    const s = document.createElement('script');
+    s.src = `https://auth.netpie.io/accesstoken?appid=${APPID}&key=${KEY}&secret=${SECRET}&grant_type=password&callback=${session}`;
+    s.onerror = () => { delete window[session]; reject(new Error('Auth failed')); };
+    document.head.appendChild(s);
+    setTimeout(()=>{ delete window[session]; reject(new Error('Auth timeout')); }, 8000);
+  });
+}
+
+async function connectNetpie(){
+  setConnState('connecting');
+  try {
+    const token = await getNetpieToken();
+    const clientId = 'web_' + Math.random().toString(16).substr(2,8);
+
+    mqttClient = mqtt.connect('wss://gb.netpie.io:8083/mqtt', {
+      username: token,
+      password: '',
+      clientId: clientId,
+      reconnectPeriod: 5000,
+      connectTimeout: 10000,
+      keepalive: 30,
+    });
+
+    mqttClient.on('connect', () => {
+      setConnState('connected');
+      // Subscribe to both possible topic formats
+      mqttClient.subscribe(TOPIC_RECV);
+      mqttClient.subscribe(TOPIC_RECV2);
+      toast('✅ เชื่อมต่อ NETPIE สำเร็จ');
+      // Request initial status broadcast from ESP
+      setTimeout(() => broadcastStatus(), 800);
+    });
+
+    mqttClient.on('message', (topic, message) => {
+      onMessage(message.toString());
+    });
+
+    mqttClient.on('error', err => {
+      console.error('MQTT error:', err);
+      setConnState('error');
+    });
+
+    mqttClient.on('close', () => {
+      if(connState === 'connected') setConnState('disconnected');
+    });
+
+    mqttClient.on('reconnect', () => setConnState('connecting'));
+
+  } catch(err) {
+    console.error('NETPIE auth error:', err);
+    setConnState('error');
+    toast('❌ เชื่อมต่อ NETPIE ล้มเหลว — ตรวจ WiFi/Internet');
+  }
+}
+
+function retryConnect(){
+  if(connState === 'error' || connState === 'disconnected'){
+    if(mqttClient) mqttClient.end(true);
+    connectNetpie();
+  }
+}
+
+function publish(payload){
+  if(!mqttClient || !mqttClient.connected){
+    toast('❌ ยังไม่ได้เชื่อมต่อ NETPIE');
+    return false;
+  }
+  mqttClient.publish(TOPIC_SEND, payload);
+  console.log('→ NETPIE:', payload);
+  return true;
+}
+
+/* ══════════════════════════════════════════════
+   NETPIE MESSAGE HANDLER
+   Parses responses from ESP8266
+══════════════════════════════════════════════ */
+function onMessage(raw){
+  console.log('← NETPIE:', raw);
+
+  // #A,N/F,N/F,...,* — Status broadcast (18 channels)
+  if(raw.startsWith('#A,')){
+    const parts = raw.split(',');
+    // #A,ch1,ch2,...,ch18,*
+    for(let i=0;i<NUM_CH;i++){
+      const val = parts[i+1];
+      const ch = `QRCH${pad(i+1)}`;
+      if(val==='N') chStatus[ch] = 'open';
+      else if(val==='F') {
+        // Only set to empty if we don't know better; keep 'taken' from U check
+        if(chStatus[ch]==='open' || chStatus[ch]==='unknown') chStatus[ch]='empty';
+      }
+    }
+    renderGrid();
+    renderStats();
+    return;
+  }
+
+  // #U,QRCHxx,T/F,* — Check channel status
+  if(raw.startsWith('#U,')){
+    const parts = raw.split(',');
+    const ch = parts[1];
+    const tf = parts[2]; // T=occupied, F=empty
+    clearTimeout(cmdTimeout);
+    hideWaiting();
+    chStatus[ch] = (tf==='T') ? 'taken' : 'empty';
+    renderGrid();
+    renderStats();
+    if(pendingCmd === 'U' && currentCh === ch){
+      pendingCmd = null;
+      updateDetailView(ch, tf==='T' ? 'taken' : 'empty');
+    }
+    return;
+  }
+
+  // #P,QRCHxx,* — Register ACK
+  if(raw.startsWith('#P,')){
+    const parts = raw.split(',');
+    const ch = parts[1];
+    clearTimeout(cmdTimeout);
+    hideWaiting();
+    closeM('m-reg');
+    chStatus[ch] = 'taken';
+    renderGrid();
+    if(pendingCmd === 'P' && currentCh === ch){
+      pendingCmd = null;
+      showSucc('✅','ลงทะเบียนสำเร็จ!',
+        `ตู้ ${ch} พร้อมใช้งาน\n\nจำ Username + Password ไว้\nเพื่อเปิดตู้ครั้งต่อไป`);
+    }
+    return;
+  }
+
+  // #L,QRCHxx,T/F,* — Login result
+  if(raw.startsWith('#L,')){
+    const parts = raw.split(',');
+    const ch  = parts[1];
+    const tf  = parts[2]; // T=success, F=fail
+    clearTimeout(cmdTimeout);
+    hideWaiting();
+    if(pendingCmd === 'L' && currentCh === ch){
+      pendingCmd = null;
+      if(tf==='T'){
+        closeM('m-login');
+        chStatus[ch] = 'open';
+        renderGrid();
+        updateDetailView(ch,'open');
+        startRelayCountdown(ch);
+        showSucc('🔓','ตู้เปิดแล้ว!',
+          `ตู้ ${ch} เปิดแล้ว\nRelay จะล็อกอัตโนมัติใน 6 วินาที\n\nหยิบของหรือวางของให้เรียบร้อย`);
+      } else {
+        document.getElementById('ml-err').classList.add('show');
+        document.getElementById('ml-btn').disabled=false;
+        document.getElementById('ml-btn').textContent='🔓 เปิดตู้';
+        toast('❌ Username หรือ Password ไม่ถูกต้อง');
+      }
+    }
+    return;
+  }
+
+  // #C,QRCHxx,* — Clear ACK
+  if(raw.startsWith('#C,')){
+    const ch = raw.split(',')[1];
+    clearTimeout(cmdTimeout);
+    hideWaiting();
+    chStatus[ch] = 'empty';
+    renderGrid();
+    if(currentCh === ch) updateDetailView(ch,'empty');
+    toast(`✅ ล้างข้อมูล ${ch} แล้ว`);
+  }
+}
+
+/* ══════════════════════════════════════════════
+   BROADCAST STATUS REQUEST
+══════════════════════════════════════════════ */
+function broadcastStatus(){
+  // Ask ESP to send current status (it broadcasts #A every loop)
+  // We just send a harmless check on CH01 to trigger communication
+  publish(`#,U,QRCH01,*`);
+}
+
+/* ══════════════════════════════════════════════
+   HOME RENDER
+══════════════════════════════════════════════ */
+function renderGrid(){
+  const g = document.getElementById('ch-grid');
+  g.innerHTML='';
+  for(let i=1;i<=NUM_CH;i++){
+    const ch=`QRCH${pad(i)}`;
+    const st=chStatus[ch]||'unknown';
+    const stText={'empty':'ว่าง','taken':'มีของ','open':'เปิดอยู่','unknown':'?'}[st];
+    const div=document.createElement('div');
+    div.className=`ch-card ${st}`;
+    div.innerHTML=`<div class="ch-led"></div>
+      <div class="ch-num">${pad(i)}</div>
+      <div class="ch-status">${stText}</div>`;
+    div.onclick=()=>openChannel(ch);
+    g.appendChild(div);
+  }
+}
+
+function renderStats(){
+  const vals = Object.values(chStatus);
+  document.getElementById('st-free').textContent = vals.filter(v=>v==='empty').length;
+  document.getElementById('st-used').textContent = vals.filter(v=>v==='taken').length;
+  document.getElementById('st-open').textContent = vals.filter(v=>v==='open').length;
+}
+
+/* ══════════════════════════════════════════════
+   QR SCANNER
+══════════════════════════════════════════════ */
+function openScanner(){
+  showScr('scr-scan');
+  document.getElementById('scan-found').classList.remove('show');
+  document.getElementById('scan-manual').value='';
+  document.getElementById('scan-hint').textContent='ชี้กล้องไปที่ QR Code บนตู้';
+  startScan();
+}
+
+function closeScanner(){
+  stopScan();
+  showScr('scr-home');
+}
+
+async function startScan(){
+  try {
+    scanStream = await navigator.mediaDevices.getUserMedia({
+      video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}
+    });
+    const video = document.getElementById('scan-video');
+    video.srcObject = scanStream;
+    video.play();
+    video.addEventListener('loadedmetadata', ()=>{
+      scanAnimId = requestAnimationFrame(scanFrame);
+    });
+  } catch(e){
+    document.getElementById('scan-hint').textContent='ไม่สามารถเปิดกล้องได้ — พิมพ์ด้วยตัวเอง';
+    console.warn('Camera:', e);
+  }
+}
+
+function stopScan(){
+  if(scanAnimId){ cancelAnimationFrame(scanAnimId); scanAnimId=null; }
+  if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream=null; }
+  const v=document.getElementById('scan-video');
+  if(v.srcObject){ v.srcObject=null; }
+}
+
+function scanFrame(){
+  const video = document.getElementById('scan-video');
+  const canvas = document.getElementById('scan-canvas');
+  if(!video.readyState || !scanStream){ return; }
+
+  canvas.width  = video.videoWidth;
+  canvas.height = video.videoHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  try {
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const result  = jsQR(imgData.data, imgData.width, imgData.height, {
+      inversionAttempts:'dontInvert'
+    });
+    if(result){
+      const ch = parseQRCode(result.data);
+      if(ch){
+        onQRFound(ch);
+        return; // Stop scanning
+      }
+    }
+  } catch(e){}
+
+  scanAnimId = requestAnimationFrame(scanFrame);
+}
+
+/* Parse QR code — accepts:
+   "QRCH01" / "qrch01" → QRCH01
+   "Admin" / "ADMIN"   → '__ADMIN__'
+   URL with ?ch=QRCH01 → QRCH01
+   "01" / "1"          → QRCH01
+*/
+function parseQRCode(raw){
+  const s = raw.trim().toUpperCase();
+
+  // Admin QR
+  if(s === 'ADMIN' || s === 'ADMIN_QR' || s === 'ADMIN_ACCESS') return '__ADMIN__';
+
+  // Format: QRCH01–QRCH18
+  const m1 = s.match(/QRCH(\d{1,2})/);
+  if(m1){
+    const n=parseInt(m1[1]);
+    if(n>=1&&n<=NUM_CH) return `QRCH${pad(n)}`;
+  }
+
+  // Format: CH01 or just "01"
+  const m2 = s.match(/^(?:CH)?(\d{1,2})$/);
+  if(m2){
+    const n=parseInt(m2[1]);
+    if(n>=1&&n<=NUM_CH) return `QRCH${pad(n)}`;
+  }
+
+  // URL with ?ch= param
+  try {
+    const url = new URL(raw);
+    const ch = url.searchParams.get('ch')||url.searchParams.get('CH');
+    if(ch) return parseQRCode(ch);
+  } catch(e){}
+
+  return null;
+}
+
+function onQRFound(ch){
+  stopScan();
+
+  // Admin QR → เปิด Admin Login modal
+  if(ch === '__ADMIN__'){
+    document.getElementById('scan-found-ch').textContent='ADMIN';
+    document.getElementById('scan-found').classList.add('show');
+    navigator.vibrate?.(150);
+    setTimeout(()=>{
+      document.getElementById('scan-found').classList.remove('show');
+      showScr('scr-home');
+      openAdminModal();
+    }, 800);
+    return;
+  }
+
+  document.getElementById('scan-found-ch').textContent=ch;
+  document.getElementById('scan-found').classList.add('show');
+  navigator.vibrate?.(150);
+
+  setTimeout(()=>{
+    document.getElementById('scan-found').classList.remove('show');
+    openChannel(ch);
+  }, 800);
+}
+
+function manualGo(){
+  const val=document.getElementById('scan-manual').value.trim().toUpperCase();
+  const ch=parseQRCode(val);
+  if(!ch){ toast('❌ รหัสตู้ไม่ถูกต้อง (เช่น QRCH01 หรือ ADMIN)'); return; }
+  stopScan();
+  if(ch==='__ADMIN__'){ showScr('scr-home'); openAdminModal(); return; }
+  openChannel(ch);
+}
+
+/* ══════════════════════════════════════════════
+   CHANNEL DETAIL
+══════════════════════════════════════════════ */
+function openChannel(ch){
+  currentCh = ch;
+  showScr('scr-detail');
+
+  // Set channel number
+  document.getElementById('det-num').textContent = pad(chNum(ch));
+  document.getElementById('det-badge').className='det-status-badge checking';
+  document.getElementById('det-badge').textContent='กำลังตรวจสอบ...';
+  document.getElementById('det-sc').className='status-card checking';
+  document.getElementById('det-sc-icon').textContent='⏳';
+  document.getElementById('det-sc-title').textContent='กำลังตรวจสอบสถานะ...';
+  document.getElementById('det-sc-desc').textContent='กำลังส่งคำสั่ง #U ไปที่ ESP8266 ผ่าน NETPIE';
+  document.getElementById('det-info').style.display='none';
+  document.getElementById('det-actions').innerHTML='';
+  document.getElementById('relay-bar').classList.remove('show');
+
+  if(connState !== 'connected'){
+    updateDetailView(ch, chStatus[ch]||'unknown');
+    toast('⚠️ ไม่ได้เชื่อมต่อ NETPIE — แสดงข้อมูล cache');
+    return;
+  }
+
+  // Send check command
+  checkChannel(ch);
+}
+
+function checkChannel(ch){
+  pendingCmd = 'U';
+
+  if(!publish(`#,U,${ch},*`)){
+    updateDetailView(ch, chStatus[ch]||'unknown');
+    return;
+  }
+
+  cmdTimeout = setTimeout(()=>{
+    if(pendingCmd === 'U'){
+      pendingCmd = null;
+      hideWaiting();
+      // Fallback to cached status
+      const cached = chStatus[ch]||'unknown';
+      updateDetailView(ch, cached);
+      toast('⚠️ ESP8266 ไม่ตอบ — ดูข้อมูล cache');
+    }
+  }, 6000);
+}
+
+function updateDetailView(ch, status){
+  chStatus[ch] = status;
+  renderGrid();
+  renderStats();
+
+  const badge = document.getElementById('det-badge');
+  const sc    = document.getElementById('det-sc');
+  const info  = document.getElementById('det-info');
+
+  // Badge
+  const badgeConf = {
+    empty:  {cls:'empty',txt:'ว่าง'},
+    taken:  {cls:'taken',txt:'มีของ'},
+    open:   {cls:'open', txt:'เปิดอยู่'},
+    unknown:{cls:'checking',txt:'ไม่ทราบ'},
+  }[status]||{cls:'checking',txt:'?'};
+  badge.className=`det-status-badge ${badgeConf.cls}`;
+  badge.textContent=badgeConf.txt;
+
+  // Status card
+  const scConf = {
+    empty:{cls:'empty',icon:'🟢',title:'ว่าง — พร้อมลงทะเบียน',
+      desc:'ตู้ว่างอยู่ กดปุ่ม "ลงทะเบียน" เพื่อจองตู้นี้'},
+    taken:{cls:'taken',icon:'📦',title:'มีสัมภาระอยู่',
+      desc:'ตู้นี้ถูกจองแล้ว กด "Login เพื่อเปิดตู้" โดยใช้ username+password ที่ลงทะเบียนไว้'},
+    open: {cls:'open', icon:'🔓',title:'เปิดอยู่ (Relay ON)',
+      desc:'ตู้เปิดแล้ว Relay จะล็อกอัตโนมัติใน 6 วินาที'},
+    unknown:{cls:'checking',icon:'❓',title:'ไม่ทราบสถานะ',
+      desc:'ไม่สามารถดึงข้อมูลจาก ESP8266 ได้ — ตรวจสอบการเชื่อมต่อ'},
+  }[status]||{cls:'checking',icon:'❓',title:'ไม่ทราบสถานะ',desc:''};
+
+  sc.className=`status-card ${scConf.cls}`;
+  document.getElementById('det-sc-icon').textContent=scConf.icon;
+  document.getElementById('det-sc-title').textContent=scConf.title;
+  document.getElementById('det-sc-desc').textContent=scConf.desc;
+
+  // Info row
+  info.style.display='block';
+  const stText={'empty':'ว่าง','taken':'มีสัมภาระ','open':'เปิดอยู่ (Relay ON)','unknown':'—'}[status];
+  const stCls ={'empty':'g','taken':'o','open':'b','unknown':''}[status];
+  document.getElementById('di-ch').textContent=ch;
+  document.getElementById('di-st').textContent=stText||'—';
+  document.getElementById('di-st').className=`iv ${stCls}`;
+  document.getElementById('di-ry').textContent=status==='open'?'ON':'OFF';
+  document.getElementById('di-ry').className=`iv ${status==='open'?'g':'r'}`;
+
+  // Actions
+  renderDetailActions(ch, status);
+}
+
+function renderDetailActions(ch, status){
+  const c = document.getElementById('det-actions');
+  c.innerHTML='';
+
+  if(status==='empty'){
+    addBtn(c,'abtn-primary','📋 ลงทะเบียนใช้ตู้นี้', ()=>openRegModal(ch));
+  } else if(status==='taken'){
+    addBtn(c,'abtn-success','🔓 Login เพื่อเปิดตู้', ()=>openLoginModal(ch));
+    addBtn(c,'abtn-info','🔄 ตรวจสอบสถานะใหม่', ()=>checkChannel(ch));
+  } else if(status==='open'){
+    // Relay auto-off in 6s — just show countdown
+  } else {
+    addBtn(c,'abtn-info','🔄 ตรวจสอบอีกครั้ง', ()=>checkChannel(ch));
+  }
+}
+
+function addBtn(parent, cls, text, fn){
+  const b=document.createElement('button');
+  b.className=`abtn ${cls}`; b.textContent=text; b.onclick=fn;
+  parent.appendChild(b);
+}
+
+/* ══════════════════════════════════════════════
+   REGISTER
+══════════════════════════════════════════════ */
+function openRegModal(ch){
+  document.getElementById('mr-ch').textContent = ch;
+  document.getElementById('mr-u').value='';
+  document.getElementById('mr-p').value='';
+  document.getElementById('mr-err').classList.remove('show');
+  document.getElementById('mr-btn').disabled=false;
+  document.getElementById('mr-btn').textContent='✅ ลงทะเบียน';
+  showM('m-reg');
+}
+
+function doRegister(){
+  const u=document.getElementById('mr-u').value.trim();
+  const p=document.getElementById('mr-p').value.trim();
+  if(!u||!p){ document.getElementById('mr-err').classList.add('show'); return; }
+  if(u.length>12||p.length>12){ document.getElementById('mr-err').textContent='ไม่เกิน 12 ตัวอักษร'; document.getElementById('mr-err').classList.add('show'); return; }
+
+  document.getElementById('mr-btn').disabled=true;
+  document.getElementById('mr-btn').textContent='กำลังส่ง...';
+  pendingCmd='P';
+
+  if(!publish(`#,P,${currentCh},${u},${p},*`)){
+    document.getElementById('mr-btn').disabled=false;
+    document.getElementById('mr-btn').textContent='✅ ลงทะเบียน';
+    return;
+  }
+
+  showWaiting('กำลังลงทะเบียน...');
+  cmdTimeout = setTimeout(()=>{
+    if(pendingCmd==='P'){
+      pendingCmd=null;
+      hideWaiting();
+      document.getElementById('mr-btn').disabled=false;
+      document.getElementById('mr-btn').textContent='✅ ลงทะเบียน';
+      toast('⚠️ ESP8266 ไม่ตอบ — ลองใหม่อีกครั้ง');
+    }
+  }, 8000);
+}
+
+/* ══════════════════════════════════════════════
+   LOGIN
+══════════════════════════════════════════════ */
+function openLoginModal(ch){
+  document.getElementById('ml-ch').textContent = ch;
+  document.getElementById('ml-u').value='';
+  document.getElementById('ml-p').value='';
+  document.getElementById('ml-err').classList.remove('show');
+  document.getElementById('ml-btn').disabled=false;
+  document.getElementById('ml-btn').textContent='🔓 เปิดตู้';
+  showM('m-login');
+}
+
+function doLogin(){
+  const u=document.getElementById('ml-u').value.trim();
+  const p=document.getElementById('ml-p').value.trim();
+  if(!u||!p){ document.getElementById('ml-err').textContent='กรุณากรอก Username และ Password'; document.getElementById('ml-err').classList.add('show'); return; }
+
+  document.getElementById('ml-btn').disabled=true;
+  document.getElementById('ml-btn').textContent='กำลังตรวจสอบ...';
+  document.getElementById('ml-err').classList.remove('show');
+  pendingCmd='L';
+
+  if(!publish(`#,L,${currentCh},${u},${p},*`)){
+    document.getElementById('ml-btn').disabled=false;
+    document.getElementById('ml-btn').textContent='🔓 เปิดตู้';
+    return;
+  }
+
+  showWaiting('กำลังตรวจสอบรหัส...');
+  cmdTimeout = setTimeout(()=>{
+    if(pendingCmd==='L'){
+      pendingCmd=null;
+      hideWaiting();
+      document.getElementById('ml-btn').disabled=false;
+      document.getElementById('ml-btn').textContent='🔓 เปิดตู้';
+      toast('⚠️ ESP8266 ไม่ตอบ — ตรวจสอบว่าบอร์ด Online');
+    }
+  }, 8000);
+}
+
+/* ══════════════════════════════════════════════
+   RELAY COUNTDOWN
+══════════════════════════════════════════════ */
+function startRelayCountdown(ch){
+  const bar  = document.getElementById('relay-bar');
+  const fill = document.getElementById('relay-fill');
+  const tEl  = document.getElementById('relay-t');
+  bar.classList.add('show');
+  let t=6;
+  tEl.textContent=t;
+  fill.style.width='100%';
+  fill.style.transition='none';
+
+  if(relayTimer) clearInterval(relayTimer);
+  relayTimer = setInterval(()=>{
+    t--;
+    tEl.textContent=t;
+    fill.style.transition='width 1s linear';
+    fill.style.width=((t/6)*100)+'%';
+    if(t<=0){
+      clearInterval(relayTimer);
+      bar.classList.remove('show');
+      chStatus[ch]='taken';
+      updateDetailView(ch,'taken');
+      renderGrid();
+    }
+  },1000);
+}
+
+/* ══════════════════════════════════════════════
+   NAVIGATION
+══════════════════════════════════════════════ */
+function goHome(){
+  stopScan();
+  if(relayTimer) clearInterval(relayTimer);
+  showScr('scr-home');
+  renderGrid();
+  renderStats();
+}
+
+/* ══════════════════════════════════════════════
+   INIT
+══════════════════════════════════════════════ */
+renderGrid();
+renderStats();
+connectNetpie();
+
+// Handle URL param ?ch=QRCH01 or ?ch=Admin
+(function(){
+  const params = new URLSearchParams(window.location.search);
+  const chParam = params.get('ch')||params.get('CH');
+  if(chParam){
+    const parsed = parseQRCode(chParam);
+    if(parsed === '__ADMIN__'){
+      setTimeout(()=>openAdminModal(), 800);
+    } else if(parsed){
+      setTimeout(()=>openChannel(parsed), 500);
+    }
+  }
+})();
+
+// Poll status broadcast periodically
+setInterval(()=>{
+  if(connState==='connected') broadcastStatus();
+}, 15000);
+
+// Keyboard
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    closeM('m-reg'); closeM('m-login');
+    if(document.getElementById('scr-scan').classList.contains('on')) closeScanner();
+  }
+});
+
+/* ══════════════════════════════════════════════
+   ADMIN QR HANDLER
+══════════════════════════════════════════════ */
+const ADMIN_PASS = 'admin1234';
+
+function openAdminModal(){
+  document.getElementById('ma-p').value='';
+  document.getElementById('ma-err').classList.remove('show');
+  showM('m-admin');
+  setTimeout(()=>document.getElementById('ma-p').focus(), 300);
+}
+
+function doAdminLogin(){
+  const p = document.getElementById('ma-p').value;
+  if(p === ADMIN_PASS){
+    closeM('m-admin');
+    // Open admin.html in same tab
+    window.location.href = 'admin.html';
+  } else {
+    document.getElementById('ma-err').classList.add('show');
+    document.getElementById('ma-p').value='';
+    document.getElementById('ma-p').focus();
+  }
+}
+
+// Enter key in admin password
+document.addEventListener('DOMContentLoaded',()=>{
+  const ap = document.getElementById('ma-p');
+  if(ap) ap.addEventListener('keydown', e=>{ if(e.key==='Enter') doAdminLogin(); });
+});
+
+</script>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QR Locker System</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+Thai:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  font-family:'Noto Sans Thai',sans-serif;
+  background:#080d12;color:#dce8f2;
+  min-height:100dvh;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;padding:24px;
+}
+.logo{font-family:'Space Mono',monospace;font-size:2rem;font-weight:700;
+  color:#f5c400;letter-spacing:-2px;margin-bottom:6px;text-align:center;}
+.sub{font-size:.75rem;color:#4a6a88;letter-spacing:3px;text-align:center;margin-bottom:40px;}
+.cards{display:flex;flex-direction:column;gap:14px;width:100%;max-width:320px;}
+.card{
+  background:#0e1820;border:1.5px solid #1e3048;border-radius:16px;
+  padding:22px 20px;cursor:pointer;text-decoration:none;color:inherit;
+  display:flex;align-items:center;gap:16px;transition:all .18s;
+}
+.card:hover{border-color:#f5c400;background:#141f2e;transform:translateY(-2px);}
+.card:active{transform:scale(.97);}
+.card-icon{font-size:2.2rem;flex-shrink:0;}
+.card-title{font-size:1rem;font-weight:700;margin-bottom:3px;}
+.card-desc{font-size:.75rem;color:#4a6a88;line-height:1.5;}
+.card.user{border-color:rgba(0,230,118,.25);}
+.card.user:hover{border-color:#00e676;}
+.card.admin{border-color:rgba(245,196,0,.2);}
+.card.admin:hover{border-color:#f5c400;}
+.card.qr{border-color:rgba(0,180,255,.2);}
+.card.qr:hover{border-color:#00b4ff;}
+.ver{margin-top:32px;font-family:'Space Mono',monospace;font-size:.6rem;color:#1e3048;letter-spacing:2px;}
+</style>
+</head>
+<body>
+<div class="logo">🔐 QRLOCKER</div>
+<div class="sub">ESP8266 · NETPIE · 18 CHANNELS</div>
+
+<div class="cards">
+  <a class="card user" href="locker.html">
+    <div class="card-icon">📱</div>
+    <div>
+      <div class="card-title">เปิดตู้ล็อกเกอร์</div>
+      <div class="card-desc">สแกน QR Code หรือเลือกตู้ที่ต้องการ<br>ลงทะเบียน / Login เพื่อเปิดตู้</div>
+    </div>
+  </a>
+
+  <a class="card admin" href="admin.html">
+    <div class="card-icon">🔑</div>
+    <div>
+      <div class="card-title">Admin Dashboard</div>
+      <div class="card-desc">จัดการระบบ ดูสถานะ Force open<br>รหัส: admin1234</div>
+    </div>
+  </a>
+
+  <a class="card qr" href="qrgen.html">
+    <div class="card-icon">🖨️</div>
+    <div>
+      <div class="card-title">พิมพ์ QR Sticker</div>
+      <div class="card-desc">สร้าง QR Code 18 ช่อง + Admin<br>พิมพ์ติดหน้าตู้แต่ละช่อง</div>
+    </div>
+  </a>
+</div>
+
+<div class="ver">QR LOCKER v2.0 · GITHUB PAGES</div>
+</body>
+</html>

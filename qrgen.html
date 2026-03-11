@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>QR Sticker Generator</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+Thai:wght@400;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Noto Sans Thai','Space Mono',sans-serif;background:#f0f2f5;padding:20px;}
+
+.controls{max-width:720px;margin:0 auto 20px;background:#fff;border-radius:14px;
+  padding:20px;box-shadow:0 2px 12px rgba(0,0,0,.08);}
+h1{font-size:1.15rem;font-weight:700;margin-bottom:14px;color:#1a1a2e;display:flex;align-items:center;gap:8px;}
+
+.url-box{background:#f8f9ff;border:1.5px solid #e0e0e0;border-radius:10px;padding:14px;margin-bottom:14px;}
+.url-label{font-size:.72rem;color:#888;margin-bottom:6px;font-weight:600;letter-spacing:1px;text-transform:uppercase;}
+.url-detected{
+  font-family:'Space Mono',monospace;font-size:.82rem;color:#1a1a2e;
+  word-break:break-all;background:#fff;border:1.5px solid #d0d8ff;
+  border-radius:7px;padding:9px 12px;margin-bottom:8px;
+}
+.url-edit{width:100%;padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:7px;
+  font-size:.82rem;font-family:'Space Mono',monospace;outline:none;color:#333;}
+.url-edit:focus{border-color:#f5c400;}
+.url-tip{font-size:.72rem;color:#22a;background:#eef;border-radius:6px;padding:6px 10px;margin-top:6px;}
+
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;}
+label{font-size:.75rem;color:#666;display:block;margin-bottom:4px;font-weight:600;}
+select{padding:8px 10px;border:1.5px solid #e0e0e0;border-radius:7px;
+  font-size:.85rem;outline:none;font-family:inherit;}
+select:focus{border-color:#f5c400;}
+.inc-admin{display:flex;align-items:center;gap:7px;font-size:.82rem;cursor:pointer;
+  padding:8px 12px;background:#fffbf0;border:1.5px solid #fde68a;border-radius:8px;}
+
+.btns{display:flex;gap:8px;flex-wrap:wrap;}
+.btn{padding:10px 22px;border-radius:9px;font-family:inherit;font-size:.85rem;
+  font-weight:700;cursor:pointer;border:none;transition:all .15s;}
+.btn-gen{background:#f5c400;color:#1a1a1a;}
+.btn-gen:hover{background:#ffe040;}
+.btn-print{background:#1a1a2e;color:#fff;}
+.btn-print:hover{background:#2a2a4e;}
+
+/* Grid */
+.grid-wrap{max-width:720px;margin:0 auto;}
+.grid-title{font-size:.7rem;color:#888;letter-spacing:2px;text-transform:uppercase;
+  margin-bottom:12px;font-weight:600;}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;}
+
+@media print{
+  body{padding:0;background:#fff;}
+  .controls{display:none;}
+  .grid-wrap .grid-title{display:none;}
+  .grid{gap:6px;padding:6px;}
+  .sticker{break-inside:avoid;box-shadow:none!important;border:1px dashed #bbb!important;}
+}
+
+/* Sticker */
+.sticker{
+  background:#fff;border-radius:11px;border:2px solid #e5e7eb;
+  padding:11px 10px 9px;text-align:center;
+  box-shadow:0 2px 8px rgba(0,0,0,.07);
+  display:flex;flex-direction:column;align-items:center;gap:5px;
+}
+.sticker-header{width:100%;background:#1a1a2e;border-radius:6px;padding:4px 8px;
+  display:flex;align-items:center;justify-content:space-between;}
+.sticker-brand{font-family:'Space Mono',monospace;font-size:.5rem;color:rgba(255,255,255,.45);letter-spacing:1.5px;}
+.sticker-ch{font-family:'Space Mono',monospace;font-size:.72rem;font-weight:700;color:#f5c400;}
+.sticker-admin .sticker-ch{color:#ff9100;}
+.qr-wrap canvas{display:block;}
+.sticker-num{font-family:'Space Mono',monospace;font-size:1.5rem;font-weight:700;
+  color:#1a1a2e;line-height:1;}
+.sticker-admin .sticker-num{font-size:1rem;color:#1a1a2e;padding:2px 0;}
+.sticker-label{font-size:.58rem;color:#aaa;letter-spacing:1px;text-transform:uppercase;}
+.sticker-footer{width:100%;border-top:1px dashed #e5e7eb;padding-top:5px;margin-top:2px;
+  font-size:.52rem;color:#ccc;letter-spacing:.3px;word-break:break-all;
+  font-family:'Space Mono',monospace;line-height:1.4;}
+</style>
+</head>
+<body>
+
+<div class="controls">
+  <h1>🖨️ QR Sticker Generator</h1>
+
+  <div class="url-box">
+    <div class="url-label">🌐 URL ของเว็บ (ตรวจพบอัตโนมัติ)</div>
+    <div class="url-detected" id="url-detected">กำลังตรวจสอบ...</div>
+    <div class="url-label" style="margin-top:8px;">✏️ หรือพิมพ์ URL เอง (ถ้าต้องการเปลี่ยน)</div>
+    <input class="url-edit" id="base-url" placeholder="https://yourname.github.io/locker/locker.html"/>
+    <div class="url-tip">💡 GitHub Pages URL รูปแบบ: <b>https://ชื่อของคุณ.github.io/locker/locker.html</b></div>
+  </div>
+
+  <div class="row">
+    <div>
+      <label>ขนาด QR (px)</label>
+      <select id="qr-size">
+        <option value="90">เล็ก (90)</option>
+        <option value="110" selected>กลาง (110)</option>
+        <option value="140">ใหญ่ (140)</option>
+      </select>
+    </div>
+    <div>
+      <label>ช่องที่</label>
+      <select id="from-ch">
+        <option value="1">01</option>
+        <option value="2">02</option>
+        <option value="3">03</option>
+        <option value="4">04</option>
+        <option value="5">05</option>
+        <option value="6">06</option>
+        <option value="7">07</option>
+        <option value="8">08</option>
+        <option value="9">09</option>
+        <option value="10">10</option>
+        <option value="11">11</option>
+        <option value="12">12</option>
+        <option value="13">13</option>
+        <option value="14">14</option>
+        <option value="15">15</option>
+        <option value="16">16</option>
+        <option value="17">17</option>
+        <option value="18">18</option>
+      </select>
+      <span style="padding:0 6px;color:#999;">ถึง</span>
+      <select id="to-ch">
+        <option value="1">01</option>
+        <option value="2">02</option>
+        <option value="3">03</option>
+        <option value="4">04</option>
+        <option value="5">05</option>
+        <option value="6">06</option>
+        <option value="7">07</option>
+        <option value="8">08</option>
+        <option value="9">09</option>
+        <option value="10">10</option>
+        <option value="11">11</option>
+        <option value="12">12</option>
+        <option value="13">13</option>
+        <option value="14">14</option>
+        <option value="15">15</option>
+        <option value="16">16</option>
+        <option value="17">17</option>
+        <option value="18" selected>18</option>
+      </select>
+    </div>
+    <label class="inc-admin">
+      <input type="checkbox" id="inc-admin" checked>
+      รวม QR Admin
+    </label>
+  </div>
+
+  <div class="btns">
+    <button class="btn btn-gen" onclick="generateAll()">🔄 สร้าง QR</button>
+    <button class="btn btn-print" onclick="window.print()">🖨️ พิมพ์สติ๊กเกอร์</button>
+  </div>
+</div>
+
+<div class="grid-wrap">
+  <div class="grid-title">QR Sticker Preview — คลิก "พิมพ์สติ๊กเกอร์" เพื่อพิมพ์</div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<script>
+const pad = n => String(n).padStart(2,'0');
+
+// Auto-detect URL
+function detectUrl(){
+  const loc = window.location;
+  // Remove qrgen.html → locker.html
+  const base = loc.href.replace(/qrgen\.html.*$/, '');
+  const url = base + 'locker.html';
+  document.getElementById('url-detected').textContent = url;
+  document.getElementById('base-url').placeholder = url;
+  // Set as default if field is empty
+  if(!document.getElementById('base-url').value){
+    document.getElementById('base-url').value = url;
+  }
+}
+
+async function generateAll(){
+  const inputUrl = document.getElementById('base-url').value.trim();
+  const baseUrl  = inputUrl || document.getElementById('url-detected').textContent;
+  const lockerUrl = baseUrl.replace(/[?#].*$/,'');
+  const size     = parseInt(document.getElementById('qr-size').value);
+  const from     = parseInt(document.getElementById('from-ch').value);
+  const to       = parseInt(document.getElementById('to-ch').value);
+  const incAdmin = document.getElementById('inc-admin').checked;
+  const grid     = document.getElementById('grid');
+  grid.innerHTML = '';
+
+  // Locker stickers
+  for(let i=from; i<=to; i++){
+    const ch  = `QRCH${pad(i)}`;
+    const url = `${lockerUrl}?ch=${ch}`;
+    await makeSticker(grid, ch, pad(i), 'QR Locker Channel', url, size, false);
+  }
+
+  // Admin sticker
+  if(incAdmin){
+    const adminUrl = `${lockerUrl}?ch=Admin`;
+    await makeSticker(grid, 'ADMIN', '🔑', 'Admin Access', adminUrl, size, true);
+  }
+}
+
+async function makeSticker(parent, ch, num, label, url, size, isAdmin){
+  const div = document.createElement('div');
+  div.className = 'sticker' + (isAdmin ? ' sticker-admin' : '');
+
+  const hdr = document.createElement('div');
+  hdr.className = 'sticker-header';
+  hdr.innerHTML = `<span class="sticker-brand">QRLOCKER</span>
+    <span class="sticker-ch">${ch}</span>`;
+  div.appendChild(hdr);
+
+  const canvas = document.createElement('canvas');
+  div.appendChild(canvas);
+
+  const numEl = document.createElement('div');
+  numEl.className = 'sticker-num';
+  numEl.textContent = num;
+  div.appendChild(numEl);
+
+  const lbl = document.createElement('div');
+  lbl.className = 'sticker-label';
+  lbl.textContent = label;
+  div.appendChild(lbl);
+
+  const footer = document.createElement('div');
+  footer.className = 'sticker-footer';
+  footer.textContent = url;
+  div.appendChild(footer);
+
+  parent.appendChild(div);
+
+  await QRCode.toCanvas(canvas, url, {
+    width: size,
+    margin: 1,
+    color:{ dark: isAdmin ? '#5a2d00' : '#1a1a2e', light:'#ffffff' },
+    errorCorrectionLevel:'M'
+  });
+}
+
+window.onload = () => {
+  detectUrl();
+  generateAll();
+};
+</script>
+</body>
+</html>
