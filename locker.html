@@ -913,26 +913,39 @@ function stopScan(){
   if(v.srcObject){ v.srcObject=null; }
 }
 
+let lastScanTime = 0;
 function scanFrame(){
   const video = document.getElementById('scan-video');
   const canvas = document.getElementById('scan-canvas');
-  if(!video.readyState || !scanStream){ return; }
+  if(!video.readyState || video.readyState < 2 || !scanStream){
+    scanAnimId = requestAnimationFrame(scanFrame);
+    return;
+  }
 
-  canvas.width  = video.videoWidth;
-  canvas.height = video.videoHeight;
-  const ctx = canvas.getContext('2d');
+  // Scan every 150ms (not every frame) to reduce CPU load
+  const now = Date.now();
+  if(now - lastScanTime < 150){
+    scanAnimId = requestAnimationFrame(scanFrame);
+    return;
+  }
+  lastScanTime = now;
+
+  canvas.width  = video.videoWidth  || 640;
+  canvas.height = video.videoHeight || 480;
+  const ctx = canvas.getContext('2d', {willReadFrequently: true});
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
   try {
     const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const result  = jsQR(imgData.data, imgData.width, imgData.height, {
-      inversionAttempts:'dontInvert'
+    // attemptBoth = ลอง scan ทั้ง normal และ inverted QR
+    const result = jsQR(imgData.data, imgData.width, imgData.height, {
+      inversionAttempts: 'attemptBoth'
     });
-    if(result){
+    if(result && result.data){
       const ch = parseQRCode(result.data);
       if(ch){
         onQRFound(ch);
-        return; // Stop scanning
+        return;
       }
     }
   } catch(e){}
@@ -950,7 +963,7 @@ function parseQRCode(raw){
   const s = raw.trim().toUpperCase();
 
   // Admin QR
-  if(s === 'ADMIN' || s === 'ADMIN_QR' || s === 'ADMIN_ACCESS') return '__ADMIN__';
+  if(s === 'ADMIN' || s === 'ADMIN_QR') return '__ADMIN__';
 
   // Format: QRCH01–QRCH18
   const m1 = s.match(/QRCH(\d{1,2})/);
@@ -1268,9 +1281,9 @@ connectNetpie();
   if(chParam){
     const parsed = parseQRCode(chParam);
     if(parsed === '__ADMIN__'){
-      setTimeout(()=>openAdminModal(), 800);
+      setTimeout(()=>openAdminModal(), 600);
     } else if(parsed){
-      setTimeout(()=>openChannel(parsed), 500);
+      setTimeout(()=>openChannel(parsed), 400);
     }
   }
 })();
