@@ -429,8 +429,17 @@ body{font-family:var(--thai);background:var(--bg);color:var(--text);
   <div class="scan-bar">
     <button class="scan-close" onclick="closeScanner()">กลับ</button>
     <input class="scan-manual" id="scan-manual" placeholder="พิมพ์ เช่น QRCH01" maxlength="8"
-      oninput="this.value=this.value.toUpperCase()">
+      oninput="this.value=this.value.toUpperCase()"
+      onkeydown="if(event.key==='Enter') manualGo()">
     <button class="scan-go" onclick="manualGo()">เปิด</button>
+  </div>
+  <!-- Photo fallback for iPhone/devices that block camera in browser -->
+  <div style="text-align:center;padding:6px 16px 10px;background:var(--surface);border-top:1px solid var(--border);">
+    <label style="font-size:.72rem;color:var(--muted2);cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+      📷 <span style="text-decoration:underline;">เลือกรูปจากกล้อง / แกลเลอรี่ แทน</span>
+      <input type="file" accept="image/*" capture="environment" id="scan-file-input"
+        style="display:none" onchange="scanFromFile(this)">
+    </label>
   </div>
 </div>
 
@@ -893,20 +902,46 @@ function closeScanner(){
   showScr('scr-home');
 }
 
+let barcodeDetector = null;
+
 async function startScan(){
+  const hintEl = document.getElementById('scan-hint');
+
+  // ลองใช้ BarcodeDetector API ก่อน (native browser — เร็วกว่า jsQR มาก)
+  if('BarcodeDetector' in window){
+    try {
+      barcodeDetector = new BarcodeDetector({ formats: ['qr_code'] });
+      hintEl.textContent = '📱 ใช้ BarcodeDetector — ชี้กล้องไปที่ QR Code';
+    } catch(e){ barcodeDetector = null; }
+  }
+
   try {
     scanStream = await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:'environment',width:{ideal:1280},height:{ideal:720}}
+      video:{
+        facingMode: { ideal: 'environment' },
+        width:  { ideal: 1280 },
+        height: { ideal: 720 }
+      }
     });
     const video = document.getElementById('scan-video');
     video.srcObject = scanStream;
-    video.play();
-    video.addEventListener('loadedmetadata', ()=>{
-      scanAnimId = requestAnimationFrame(scanFrame);
+    await video.play();
+
+    // รอให้กล้องพร้อมก่อน
+    await new Promise(res => {
+      if(video.readyState >= 2) return res();
+      video.addEventListener('canplay', res, { once: true });
     });
+
+    hintEl.textContent = '📷 ชี้กล้องไปที่ QR Code บนตู้';
+    scanAnimId = requestAnimationFrame(scanFrame);
   } catch(e){
-    document.getElementById('scan-hint').textContent='ไม่สามารถเปิดกล้องได้ — พิมพ์ด้วยตัวเอง';
-    console.warn('Camera:', e);
+    console.warn('Camera error:', e);
+    if(e.name === 'NotAllowedError'){
+      hintEl.textContent = '❌ ถูกบล็อกการเข้าถึงกล้อง — กด Allow แล้วรีเฟรช';
+    } else {
+      hintEl.textContent = '❌ เปิดกล้องไม่ได้ — พิมพ์ช่องล่างแทน';
+    }
   }
 }
 
@@ -915,41 +950,48 @@ function stopScan(){
   if(scanStream){ scanStream.getTracks().forEach(t=>t.stop()); scanStream=null; }
   const v=document.getElementById('scan-video');
   if(v.srcObject){ v.srcObject=null; }
+  barcodeDetector = null;
 }
 
 let lastScanTime = 0;
-function scanFrame(){
+async function scanFrame(){
   const video = document.getElementById('scan-video');
-  const canvas = document.getElementById('scan-canvas');
-  if(!video.readyState || video.readyState < 2 || !scanStream){
+  if(!scanStream || video.paused || video.ended){
     scanAnimId = requestAnimationFrame(scanFrame);
     return;
   }
 
-  // Scan every 150ms (not every frame) to reduce CPU load
   const now = Date.now();
-  if(now - lastScanTime < 150){
+  if(now - lastScanTime < 200){
     scanAnimId = requestAnimationFrame(scanFrame);
     return;
   }
   lastScanTime = now;
 
-  canvas.width  = video.videoWidth  || 640;
-  canvas.height = video.videoHeight || 480;
-  const ctx = canvas.getContext('2d', {willReadFrequently: true});
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
   try {
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    // attemptBoth = ลอง scan ทั้ง normal และ inverted QR
-    const result = jsQR(imgData.data, imgData.width, imgData.height, {
-      inversionAttempts: 'attemptBoth'
-    });
-    if(result && result.data){
-      const ch = parseQRCode(result.data);
-      if(ch){
-        onQRFound(ch);
-        return;
+    // วิธีที่ 1: BarcodeDetector API (native, เร็ว, แม่นยำ)
+    if(barcodeDetector){
+      const codes = await barcodeDetector.detect(video);
+      if(codes && codes.length > 0){
+        const ch = parseQRCode(codes[0].rawValue);
+        if(ch){ onQRFound(ch); return; }
+      }
+    } else {
+      // วิธีที่ 2: jsQR (fallback)
+      const canvas = document.getElementById('scan-canvas');
+      canvas.width  = video.videoWidth  || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d', {willReadFrequently: true});
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      if(typeof jsQR !== 'undefined'){
+        const result = jsQR(imgData.data, imgData.width, imgData.height, {
+          inversionAttempts: 'attemptBoth'
+        });
+        if(result && result.data){
+          const ch = parseQRCode(result.data);
+          if(ch){ onQRFound(ch); return; }
+        }
       }
     }
   } catch(e){}
@@ -991,6 +1033,51 @@ function parseQRCode(raw){
   } catch(e){}
 
   return null;
+}
+
+function scanFromFile(input){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    const img = new Image();
+    img.onload = function(){
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      // Try BarcodeDetector first
+      if(barcodeDetector || 'BarcodeDetector' in window){
+        const bd = barcodeDetector || new BarcodeDetector({formats:['qr_code']});
+        bd.detect(img).then(codes => {
+          if(codes && codes.length > 0){
+            const ch = parseQRCode(codes[0].rawValue);
+            if(ch){ onQRFound(ch); return; }
+          }
+          toast('❌ อ่าน QR ไม่ได้ — ลองพิมพ์ด้วยตัวเองแทน');
+        }).catch(()=>tryJsQROnCanvas(canvas));
+      } else {
+        tryJsQROnCanvas(canvas);
+      }
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+  input.value = '';
+}
+
+function tryJsQROnCanvas(canvas){
+  const ctx = canvas.getContext('2d');
+  const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  if(typeof jsQR !== 'undefined'){
+    const result = jsQR(imgData.data,imgData.width,imgData.height,{inversionAttempts:'attemptBoth'});
+    if(result && result.data){
+      const ch = parseQRCode(result.data);
+      if(ch){ onQRFound(ch); return; }
+    }
+  }
+  toast('❌ อ่าน QR ไม่ได้ — ลองพิมพ์ QRCH01–QRCH18 ด้วยตัวเอง');
 }
 
 function onQRFound(ch){
