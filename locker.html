@@ -934,6 +934,9 @@ async function startScan(){
     });
 
     hintEl.textContent = '📷 ชี้กล้องไปที่ QR Code บนตู้';
+    // แสดงปุ่ม iPhone backup
+    const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    if(isIOS){ document.getElementById('ios-bar').style.display='block'; }
     scanAnimId = requestAnimationFrame(scanFrame);
   } catch(e){
     console.warn('Camera error:', e);
@@ -951,6 +954,47 @@ function stopScan(){
   const v=document.getElementById('scan-video');
   if(v.srcObject){ v.srcObject=null; }
   barcodeDetector = null;
+}
+
+// iOS photo capture → process with jsQR
+async function processCapture(input){
+  const file = input.files[0];
+  if(!file) return;
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = async () => {
+    const canvas = document.getElementById('scan-canvas');
+    canvas.width  = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext('2d', {willReadFrequently:true});
+    ctx.drawImage(img, 0, 0);
+    URL.revokeObjectURL(url);
+
+    // Try BarcodeDetector first
+    if('BarcodeDetector' in window){
+      try {
+        const bd = new BarcodeDetector({formats:['qr_code']});
+        const codes = await bd.detect(img);
+        if(codes && codes.length > 0){
+          const ch = parseQRCode(codes[0].rawValue);
+          if(ch){ onQRFound(ch); return; }
+        }
+      } catch(e){}
+    }
+
+    // Fallback: jsQR
+    if(typeof jsQR !== 'undefined'){
+      const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
+      const result = jsQR(imgData.data,imgData.width,imgData.height,{inversionAttempts:'attemptBoth'});
+      if(result && result.data){
+        const ch = parseQRCode(result.data);
+        if(ch){ onQRFound(ch); return; }
+      }
+    }
+    toast('❌ อ่าน QR ไม่ได้ — ลองถ่ายใหม่ให้ชัดขึ้น');
+    input.value = '';
+  };
+  img.src = url;
 }
 
 let lastScanTime = 0;
