@@ -692,12 +692,16 @@ async function connectNetpie(){
 
     mqttClient.on('connect', () => {
       setConnState('connected');
-      // Subscribe to both possible topic formats
       mqttClient.subscribe(TOPIC_RECV);
       mqttClient.subscribe(TOPIC_RECV2);
       toast('✅ เชื่อมต่อ NETPIE สำเร็จ');
-      // Request initial status broadcast from ESP
       setTimeout(() => broadcastStatus(), 800);
+      // ถ้ามาจาก QR scan → ตรวจสถานะตู้ทันที
+      if(pendingChannel){
+        const ch = pendingChannel;
+        pendingChannel = null;
+        setTimeout(()=> openChannel(ch), 300);
+      }
     });
 
     mqttClient.on('message', (topic, message) => {
@@ -1270,23 +1274,37 @@ function goHome(){
 /* ══════════════════════════════════════════════
    INIT
 ══════════════════════════════════════════════ */
-renderGrid();
-renderStats();
-connectNetpie();
 
-// Handle URL param ?ch=QRCH01 or ?ch=Admin
+// ตรวจ URL param ?ch= ก่อนเลย แสดงหน้า detail ทันที ไม่รอ NETPIE
+let pendingChannel = null;
 (function(){
   const params = new URLSearchParams(window.location.search);
   const chParam = params.get('ch')||params.get('CH');
   if(chParam){
     const parsed = parseQRCode(chParam);
-    if(parsed === '__ADMIN__'){
-      setTimeout(()=>openAdminModal(), 600);
-    } else if(parsed){
-      setTimeout(()=>openChannel(parsed), 400);
+    if(parsed){
+      pendingChannel = parsed;
+      currentCh = parsed;
+      // แสดงหน้า detail ทันที
+      showScr('scr-detail');
+      document.getElementById('det-num').textContent = pad(chNum(parsed));
+      document.getElementById('det-badge').className='det-status-badge checking';
+      document.getElementById('det-badge').textContent='กำลังเชื่อมต่อ...';
+      document.getElementById('det-sc').className='status-card checking';
+      document.getElementById('det-sc-icon').textContent='📡';
+      document.getElementById('det-sc-title').textContent='กำลังเชื่อมต่อ NETPIE...';
+      document.getElementById('det-sc-desc').textContent='รอสักครู่ ระบบกำลังเชื่อมต่อกับ ESP8266 — ห้ามกดปุ่มสแกนซ้ำ';
+      document.getElementById('det-info').style.display='none';
+      document.getElementById('det-actions').innerHTML=
+        '<button class="abtn abtn-info" onclick="goHome()">← กลับหน้าหลัก</button>';
+      document.getElementById('relay-bar').classList.remove('show');
     }
   }
 })();
+
+renderGrid();
+renderStats();
+connectNetpie();
 
 // Poll status broadcast periodically
 setInterval(()=>{
